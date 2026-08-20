@@ -27,6 +27,7 @@ def start_asfclaim(batch_path: Union[str, Path] = DEFAULT_ASFCLAIM_PATH) -> int:
         ['cmd.exe', '/d', '/c', str(batch_file)],
         cwd=str(batch_file.parent),
         stdin=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
         check=False,
     )
 

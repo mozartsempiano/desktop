@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from scripts.console import ERROR, INFO, SUCCESS, TASK, WARNING
@@ -10,20 +12,22 @@ from scripts.task_codes import ALREADY_RUNNING_EXIT_CODE
 
 
 ROOT_DIR = Path(__file__).resolve().parent
+LOGS_DIR = ROOT_DIR / 'logs'
 
 
 @dataclass(frozen=True)
 class Task:
     name: str
     module: str
-    separate_terminal: bool = False
+    background: bool = False
+    log_name: str | None = None
 
 
 TASKS = [
     Task('Organizar Downloads', 'scripts.organize_downloads'),
     Task('Alterar papel de parede', 'scripts.set_wallpaper'),
-    Task('Iniciar ArchiSteamFarm', 'scripts.start_asf', separate_terminal=True),
-    Task('Iniciar ASFclaim', 'scripts.start_asfclaim', separate_terminal=True),
+    Task('Iniciar ArchiSteamFarm', 'scripts.start_asf', background=True, log_name='asf.log'),
+    Task('Iniciar ASFclaim', 'scripts.start_asfclaim', background=True, log_name='asfclaim.log'),
 ]
 
 
@@ -31,6 +35,7 @@ TASKS = [
 class RunningTask:
     task: Task
     process: subprocess.Popen[bytes]
+    log_path: Path
 
 
 def run_task(task: Task) -> RunningTask | None:
@@ -38,45 +43,85 @@ def run_task(task: Task) -> RunningTask | None:
 
     command = [sys.executable, '-B', '-m', task.module]
 
-    if task.separate_terminal:
-        process = subprocess.Popen(
-            command,
-            cwd=ROOT_DIR,
-            creationflags=getattr(subprocess, 'CREATE_NEW_CONSOLE', 0),
-        )
-        INFO(f'Terminal aberto: {task.name} (PID {process.pid})')
-        return RunningTask(task, process)
+    if task.background:
+        log_path = prepare_task_log(task)
+        with log_path.open('a', encoding='utf-8') as log_file:
+            process = subprocess.Popen(
+                command,
+                cwd=ROOT_DIR,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+            )
+
+        INFO(f'Background iniciado: {task.name} (PID {process.pid}, log: {log_path})')
+        return RunningTask(task, process, log_path)
 
     subprocess.run(command, cwd=ROOT_DIR, check=True)
     return None
 
 
-def wait_for_terminal_tasks(running_tasks: list[RunningTask]) -> int:
+def prepare_task_log(task: Task) -> Path:
+    if not task.log_name:
+        raise ValueError(f'Tarefa em background sem log configurado: {task.name}')
+
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOGS_DIR / task.log_name
+
+    with log_path.open('a', encoding='utf-8') as log_file:
+        log_file.write(f'\n==== {datetime.now():%Y-%m-%d %H:%M:%S} | {task.name} ====\n')
+
+    return log_path
+
+
+def wait_for_background_tasks(running_tasks: list[RunningTask]) -> int:
     if not running_tasks:
         return 0
 
-    INFO('Aguardando tarefas em terminais separados. Use Ctrl+C aqui para encerrar todas.')
+    INFO('Aguardando tarefas em background. Use Ctrl+C aqui para encerrar todas.')
 
     exit_code = 0
-    for running_task in running_tasks:
-        return_code = running_task.process.wait()
-        if return_code == ALREADY_RUNNING_EXIT_CODE:
-            WARNING(f'Ignorado: {running_task.task.name} ja estava em execucao.')
-            continue
+    pending_tasks = list(running_tasks)
 
-        if return_code != 0 and exit_code == 0:
-            exit_code = return_code
+    while pending_tasks:
+        for running_task in pending_tasks[:]:
+            return_code = running_task.process.poll()
+            if return_code is None:
+                continue
 
-        message = f'Finalizado: {running_task.task.name} (codigo {return_code})'
-        if return_code == 0:
-            SUCCESS(message)
-        else:
-            ERROR(message)
+            pending_tasks.remove(running_task)
+            exit_code = handle_finished_background_task(running_task, return_code, exit_code)
+
+        if pending_tasks:
+            time.sleep(0.5)
 
     return exit_code
 
 
-def terminate_terminal_tasks(running_tasks: list[RunningTask]) -> None:
+def handle_finished_background_task(
+    running_task: RunningTask,
+    return_code: int,
+    current_exit_code: int,
+) -> int:
+    exit_code = current_exit_code
+
+    if return_code == ALREADY_RUNNING_EXIT_CODE:
+        WARNING(f'Ignorado: {running_task.task.name} ja estava em execucao. Log: {running_task.log_path}')
+        return exit_code
+
+    if return_code != 0 and exit_code == 0:
+        exit_code = return_code
+
+    message = f'Finalizado: {running_task.task.name} (codigo {return_code}, log: {running_task.log_path})'
+    if return_code == 0:
+        SUCCESS(message)
+    else:
+        ERROR(message)
+
+    return exit_code
+
+
+def terminate_background_tasks(running_tasks: list[RunningTask]) -> None:
     for running_task in running_tasks:
         process = running_task.process
         if process.poll() is not None:
@@ -108,10 +153,10 @@ def main() -> int:
             if running_task:
                 running_tasks.append(running_task)
 
-        return wait_for_terminal_tasks(running_tasks)
+        return wait_for_background_tasks(running_tasks)
     except KeyboardInterrupt:
         WARNING('Interrompido pelo usuario.')
-        terminate_terminal_tasks(running_tasks)
+        terminate_background_tasks(running_tasks)
         return 130
 
 

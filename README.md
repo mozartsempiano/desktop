@@ -29,9 +29,9 @@ O script de organizacao de downloads usa pastas derivadas do usuario atual: `Pat
 
 Antes de abrir ASF ou ASFclaim, o script verifica se eles ja estao em execucao e ignora a etapa para evitar duplicidade.
 
-ASF e ASFclaim abrem em terminais separados. Esses terminais fecham quando os processos terminam. Enquanto eles estiverem abertos, o `run.py` continua aguardando; use `Ctrl+C` no terminal do `run.py` para encerrar as tarefas abertas por ele.
+ASF e ASFclaim rodam em background, sem abrir terminais visiveis. A saida deles fica em `logs\asf.log` e `logs\asfclaim.log`. Enquanto eles estiverem ativos, o `run.py` continua aguardando; use `Ctrl+C` no terminal do `run.py` para encerrar as tarefas abertas por ele.
 
-Se ASF ou ASFclaim ja estiverem abertos, o terminal da tarefa pode fechar rapidamente e o `run.py` mostrara que a etapa foi ignorada para evitar duplicidade.
+Se ASF ou ASFclaim ja estiverem abertos, a tarefa pode finalizar rapidamente e o `run.py` mostrara que a etapa foi ignorada para evitar duplicidade.
 
 ## Scripts individuais
 

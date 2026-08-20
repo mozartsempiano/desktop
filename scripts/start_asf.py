@@ -23,7 +23,12 @@ def start_asf(executable_path: Union[str, Path] = DEFAULT_ASF_PATH) -> int:
         WARNING(f'ArchiSteamFarm ja esta em execucao: {executable}')
         return ALREADY_RUNNING_EXIT_CODE
 
-    result = subprocess.run([str(executable)], cwd=str(executable.parent), check=False)
+    result = subprocess.run(
+        [str(executable)],
+        cwd=str(executable.parent),
+        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+        check=False,
+    )
 
     SUCCESS(f'ArchiSteamFarm finalizado: {executable}')
     return result.returncode
